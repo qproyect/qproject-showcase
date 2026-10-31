@@ -2,19 +2,19 @@
 
 ## Problem
 
-Modern interactive AI applications require continuous context retention and low-latency reasoning across extended conversational lifecycles. Relying on a single proprietary AI provider introduces severe risks: service outages, rate limits, latency spikes, and vendor lock-in. Furthermore, sending raw user-submitted images and unconstrained prompts to external inference APIs creates critical privacy exposures and prompt-injection vulnerabilities.
+Interactive AI applications require context retention and resilient reasoning across conversational lifecycles. Relying on a single proprietary AI provider introduces risks of service interruptions, rate limiting, and vendor dependence. Furthermore, forwarding unscrubbed user-submitted images and unconstrained prompts to external inference APIs creates privacy risks and potential prompt-injection vulnerabilities.
 
-Quiddit was designed as a production-grade AI orchestrator (~60,000 lines of code) that provides resilient multi-model routing, durable long-term semantic memory, and proactive edge privacy protections.
+Quiddit is an AI orchestrator (~60k LOC) designed to manage multi-model routing, maintain long-term semantic memory, and apply local privacy protections.
 
 ---
 
 ## Constraints
 
-1. **Vendor Resilience & Uptime**: The system must sustain zero downtime during upstream provider degradation or API outages by dynamically falling back across heterogeneous cloud and self-hosted model backends.
-2. **Context Persistence Without Token Saturation**: Retaining complete multi-turn dialogue histories in raw token context windows is cost-prohibitive and degrades reasoning performance. Memory recall must be fast, relevant, and bounded.
-3. **Data Privacy & Zero-Egress Person Scrubbing**: User-uploaded imagery must never expose identifiable human subjects to external LLM providers or unencrypted networks.
-4. **Adversarial Input Resilience**: Free-form text prompts must not hijack system instructions or extract sensitive conversational memory.
-5. **Deterministic Downstream Consumers**: Core business systems require strictly typed JSON responses from model outputs that are inherently probabilistic.
+1. **Vendor Resilience**: The system is designed to mitigate downtime from upstream provider degradation by supporting failover across cloud and local model providers.
+2. **Context Persistence**: Dialogue histories must be indexed and retrieved semantically rather than overloading prompt context windows.
+3. **Data Privacy**: Images containing human subjects must be scrubbed locally before frames leave the network boundary.
+4. **Input Defense**: Untrusted text prompts must be isolated to resist prompt injection and protect system instructions.
+5. **Structured Outputs**: Core downstream services require strictly typed JSON responses from model outputs.
 
 ---
 
@@ -24,28 +24,28 @@ The following diagram illustrates the component architecture and data flow of th
 
 ```mermaid
 graph TD
-    Client[Client Application] -->|HTTP / WebSocket| Ingress[Nginx Reverse Proxy]
-    Ingress --> Orchestrator[Node.js Orchestration Engine]
+    Client[Client Application] --> Ingress[Nginx Reverse Proxy]
+    Ingress --> Orchestrator[Node.js Orchestrator]
 
-    subgraph Privacy Guard [Pre-Processing & Privacy Boundary]
-        Orchestrator -->|Raw Images| DETR[Local DETR Vision Service]
-        DETR -->|Sanitized Frames / Redacted BBoxes| Orchestrator
-        Orchestrator -->|Untrusted Prompt| InjectionDefense[Prompt Injection Defense Layer]
+    subgraph Privacy Guard [Pre-Processing & Boundary Protection]
+        Orchestrator -->|Frames| DETR[Local DETR Image Scrubbing]
+        DETR -->|Scrubbed Frames| Orchestrator
+        Orchestrator -->|Prompt| DefenseLayer[Prompt Injection Defense Layer]
     end
 
-    subgraph Memory Store [Semantic Long-Term Memory]
-        Orchestrator <-->|Vector Embeddings & HNSW Search| PGVector[(PostgreSQL + pgvector)]
+    subgraph Memory Store [Semantic Memory]
+        Orchestrator <-->|Embeddings & Retrieval| PGVector[(PostgreSQL + pgvector)]
     end
 
-    subgraph LLM Provider Tier [Multi-Provider Failover Gateway]
-        InjectionDefense --> Router{Circuit Breaker & Fallback Router}
-        Router -->|Tier 1 Primary| Gemini[Google Gemini API]
-        Router -->|Tier 2 Secondary| Together[Together AI API]
-        Router -->|Tier 3 Fallback| Ollama[Self-Hosted Ollama Cluster]
+    subgraph LLM Failover [Multi-Provider Failover]
+        DefenseLayer --> FailoverRouter{Ordered Failover Router}
+        FailoverRouter -->|Primary| Gemini[Google Gemini API]
+        FailoverRouter -->|Secondary Failover| Together[Together AI API]
+        FailoverRouter -->|Local Failover| Ollama[Ollama Provider]
     end
 
-    subgraph Output Validation [Structured Extraction Layer]
-        Gemini --> ResponseParser[Recursive JSON Sanitizer & Schema Validator]
+    subgraph Output Validation [Structured Outputs]
+        Gemini --> ResponseParser[Recursive JSON Sanitizer]
         Together --> ResponseParser
         Ollama --> ResponseParser
     end
@@ -58,42 +58,42 @@ graph TD
 
 ## Key Decisions & Trade-offs
 
-- **PostgreSQL + pgvector over Specialized Vector Databases**:
-  - *Decision*: Adopted PostgreSQL with `pgvector` to consolidate relational conversational state, operational metadata, and high-dimensional semantic embeddings within a single ACID-compliant database.
-  - *Trade-off*: Avoided the operational burden of synchronizing data between separate vector engines (e.g., Pinecone/Milvus) and standard relational databases, accepting slightly higher indexing management overhead under high concurrency.
-- **Dynamic Multi-Provider Fallback (Gemini → Together AI → Ollama)**:
-  - *Decision*: Built an active health-checking and circuit-breaker mechanism that routes requests primarily to Gemini, cascades to Together AI upon rate-limiting or latency thresholds, and ultimately falls back to self-hosted Ollama instances.
-  - *Trade-off*: Required maintaining prompt normalization and capability parity across models with varying context sizes, but delivered near-100% availability.
-- **Local DETR-based Image Scrubbing**:
-  - *Decision*: Integrated a local vision worker utilizing the DEtection TRansformer (DETR) model running inside the infrastructure perimeter to locate and redact human faces/bodies before frames exit the boundary.
-  - *Trade-off*: Introduced a minimal edge-processing latency penalty per image upload (~150–250 ms), completely eliminating the risk of external PII leakage.
+- **PostgreSQL + pgvector for Long-Term Memory**:
+  - *Decision*: Adopted PostgreSQL with `pgvector` to store conversational data, relational metadata, and vector embeddings in a unified database.
+  - *Trade-off*: Avoids maintaining a separate vector database cluster alongside relational storage, while requiring appropriate index management in PostgreSQL.
+- **Ordered Multi-Provider LLM Failover (Gemini → Together AI → Ollama)**:
+  - *Decision*: Configured the Node.js orchestrator to attempt requests with Gemini first, fail over to Together AI if unavailable or rate-limited, and route to local Ollama if external options fail.
+  - *Trade-off*: Requires maintaining prompt compatibility across distinct model families, but provides resilience against single-vendor outages.
+- **Local DETR-Based Image Scrubbing**:
+  - *Decision*: Integrated an on-premises DETR (DEtection TRansformer) model to detect and scrub people from image frames locally before any network egress.
+  - *Trade-off*: Incurs local compute overhead before forwarding requests, but ensures frames with people do not leave the local network.
 - **Strict JSON-Schema Output Enforcement**:
-  - *Decision*: Combined native schema enforcement parameters with post-generation JSON sanitization to guarantee conformant structural data.
-  - *Trade-off*: Occasional re-prompt or schema repair overhead on lower-parameter fallback models, in exchange for zero contract breaks in downstream application services.
+  - *Decision*: Combined model-level schema constraints with recursive JSON sanitization in Node.js to enforce expected data structures.
+  - *Trade-off*: May require fallback re-prompting if a smaller model returns malformed JSON, but protects downstream application contracts.
 
 ---
 
 ## Security Approach
 
-- **XML Delimiter Isolation**: Untrusted user inputs and historical context fragments are wrapped inside cryptographically validated XML tags with explicit boundary directives, preventing the LLM from executing injected system prompts.
-- **Recursive JSON Sanitization**: Model outputs are recursively parsed, stripped of control characters, checked for prototype pollution attacks, and validated against strict schemas before memory storage or execution.
-- **Local Perimeter Privacy**: Raw image frames containing human subjects are processed through the DETR scrubbing service; only obscured or redacted image representations leave the local Docker network.
-- **Ephemeral Credentials & Network Isolation**: Services communicate inside an internal Docker network behind Nginx; all provider API keys reside strictly within encrypted environment runtime configs.
+- **XML Delimiter Isolation**: User prompts and retrieved memory contexts are enclosed in defined XML delimiters to isolate untrusted input from system instructions.
+- **Recursive JSON Sanitization**: Model responses are recursively parsed and sanitized to validate types and mitigate malformed payloads before processing.
+- **Local DETR Scrubbing**: Image frames are evaluated locally; identifiable people are scrubbed before frames leave the network.
+- **Perimeter Isolation**: Components are deployed within Docker containers behind an Nginx reverse proxy.
 
 ---
 
 ## Stack
 
-- **Backend Runtime**: Node.js, TypeScript
+- **Backend Orchestrator**: Node.js, TypeScript (~60k LOC)
 - **Database & Semantic Store**: PostgreSQL, `pgvector`
-- **Vision & Privacy**: PyTorch, DETR (DEtection TRansformer)
-- **Model Providers**: Google Gemini API, Together AI API, Ollama (Self-Hosted)
-- **Infrastructure & Deployment**: Docker, Docker Compose, Nginx
+- **Vision & Scrubbing**: DETR (DEtection TRansformer)
+- **Model Providers**: Google Gemini, Together AI, Ollama
+- **Deployment**: Docker, Nginx
 
 ---
 
 ## What I'd Do Next
 
-1. **Streaming Partial Schema Validation**: Implement incremental streaming JSON parsers to validate and emit structured fields as tokens arrive, reducing perceived user latency.
-2. **Hybrid Semantic + BM25 Lexical Retrieval**: Introduce PostgreSQL full-text search fused with vector cosine distance using Reciprocal Rank Fusion (RRF) for enhanced domain keyword precision.
-3. **Automated Red-Teaming CI Suite**: Build a synthetic adversarial evaluation harness in CI to continuously benchmark prompt injection defenses against updated jailbreak vectors.
+1. **Streaming Partial Schema Validation**: Future exploration: implement incremental streaming JSON parsing to validate fields as tokens arrive.
+2. **Hybrid Semantic + BM25 Lexical Retrieval**: Future exploration: evaluate combining PostgreSQL full-text search with vector similarity using Reciprocal Rank Fusion.
+3. **Automated Red-Teaming Suite**: Future exploration: build an automated test harness to evaluate injection defense boundaries against emerging jailbreak techniques.

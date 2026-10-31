@@ -2,51 +2,49 @@
 
 ## Problema
 
-La creación de datasets de alta precisión para visión computacional y computación espacial exige sincronizar flujos de video de alta tasa de cuadros con telemetría de unidades de medición inercial (IMU) en dispositivos móviles. Los frameworks móviles estándar frecuentemente introducen bloqueos en hilos de ejecución, pérdida de cuadros y desfasajes temporales entre las marcas de tiempo de los sensores y el video. A su vez, los videos capturados en exteriores captan de forma involuntaria rostros de transeúntes y documentos personales, originando riesgos regulatorios y de privacidad si se almacenan directamente en la nube.
+La construcción de datasets para visión computacional requiere recopilar video de cámara sincronizado con lecturas de sensores de unidad de medición inercial (IMU) en dispositivos móviles. Los frameworks móviles convencionales pueden experimentar dificultades para coordinar fotogramas de video con marcas de tiempo de sensores bajo cargas intensivas de procesamiento. A su vez, la grabación de video en entornos reales conlleva el riesgo de capturar rostros de transeúntes o documentos personales, demandando filtros de privacidad inmediatos.
 
-Qvision fue diseñado como una plataforma integral de adquisición y curaduría de datasets (~55.000 líneas de código) que combina sincronización de sensores a alta frecuencia, filtros de privacidad on-device y un panel administrativo seguro para validación.
+Qvision fue diseñado como una plataforma de recolección en el edge y validación de datasets (~55k LOC) combinando sincronización de sensores móviles, disparadores de privacidad on-device y un panel web de administración.
 
 ---
 
 ## Restricciones
 
-1. **Sincronización Estricta de Telemetría a 100 ms**: Las lecturas del acelerómetro y giroscopio deben tomarse con precisión cada 100 ms y asociarse a los fotogramas de video correspondientes sin pérdidas de cuadros ante alta carga de CPU.
-2. **Privacidad Total en el Edge**: Cualquier segmento que capture rostros humanos o documentos de identidad debe detectarse en el propio dispositivo; el segmento no conforme se descarta en memoria antes de cualquier intento de subida.
-3. **Restricciones de Hardware y Batería**: Los modelos de machine learning que analizan la privacidad deben ejecutarse en tiempo real sobre el hardware móvil sin inducir sobrecalentamiento ni agotamiento acelerado de batería.
-4. **Integridad y Curación de Datos**: La información recolectada requiere revisión humana, anotación automática de cuadros delimitadores y ciclos continuos de reentrenamiento de modelos de segmentación.
+1. **Sincronización de Sensores**: La captura de video debe combinarse con telemetría continua de IMU muestreada a intervalos de 100 ms en el dispositivo móvil.
+2. **Disparadores de Privacidad On-Device**: La detección facial y la detección de documentos deben evaluar los fotogramas directamente en el dispositivo; si se detecta un rostro o un documento, la app debe descartar el segmento y pausar la grabación.
+3. **Flujo de Validación de Datasets**: La información recopilada requiere revisión administrativa, anotación y reentrenamiento para modelos de segmentación semántica.
 
 ---
 
 ## Arquitectura
 
-El siguiente diagrama ilustra el flujo completo de captura, filtrado de privacidad y curaduría en Qvision:
+El siguiente diagrama detalla la captura en el edge móvil, el filtrado de privacidad y el pipeline de administración de datasets:
 
 ```mermaid
 graph TD
-    subgraph Mobile Edge Capture [Captura en Dispositivo: React Native + Kotlin]
-        Camera[Flujo de Cámara] --> NativeBridge[Módulo Nativo en Kotlin]
-        IMUSensors[Acelerómetro y Giroscopio] -->|Muestreo cada 100 ms| NativeBridge
+    subgraph Mobile Edge Capture [App React Native con Módulos Nativos en Kotlin]
+        Camera[Flujo de Video de Cámara] --> KotlinModule[Módulo Nativo de Captura en Kotlin]
+        IMU[Sensores IMU: Muestreo a 100 ms] --> KotlinModule
 
-        NativeBridge --> FrameBuffer[Buffer de Video y Telemetría]
-        FrameBuffer --> TFLite[Detección Facial TFLite]
-        FrameBuffer --> MLKit[Detección de Documentos ML Kit]
+        KotlinModule --> PrivacyGating{Detección de Privacidad On-Device}
+        PrivacyGating --> TFLite[Detección Facial TFLite]
+        PrivacyGating --> MLKit[Detección de Documentos ML Kit]
 
-        TFLite --> PrivacyGate{¿Se Detectó Rostro o Documento?}
-        MLKit --> PrivacyGate
+        TFLite --> TripwireDecision{¿Rostro o Documento Detectado?}
+        MLKit --> TripwireDecision
 
-        PrivacyGate -->|Detección Positiva| DiscardAction[Descartar Segmento y Pausar Grabación]
-        PrivacyGate -->|Flujo Limpio| LocalPackager[Empaquetador Local Cifrado]
+        TripwireDecision -->|Sí| DiscardPause[Descartar Segmento y Pausar Grabación]
+        TripwireDecision -->|No| UploadStream[Subida de Datos Validados]
     end
 
-    LocalPackager -->|Subida TLS Segura| StorageBucket[(Bucket de Almacenamiento Supabase)]
-    LocalPackager -->|Metadatos de Telemetría| SupabaseDB[(Base de Datos PostgreSQL Supabase)]
+    UploadStream --> SupabaseStorage[(Supabase Storage)]
+    UploadStream --> SupabaseDB[(Base de Datos Supabase)]
 
-    subgraph Backoffice & Dataset Pipeline [Panel Admin y Entrenamiento]
-        StorageBucket --> AdminApp[Dashboard Admin React / Vite]
-        SupabaseDB --> AdminApp
-        AdminApp -->|Exportación Curada| Roboflow[Motor de Anotación Roboflow]
-        Roboflow -->|Splits Anotados| TrainingCluster[Pipeline de Entrenamiento YOLO]
-        TrainingCluster -->|Pesos Entrenados| ModelRegistry[Registro de Modelos Edge]
+    subgraph Dataset Validation & Training [Panel Admin y Entrenamiento]
+        SupabaseStorage --> AdminDashboard[Dashboard Admin React / Vite]
+        SupabaseDB --> AdminDashboard
+        AdminDashboard --> Roboflow[Anotación y Versionado en Roboflow]
+        Roboflow --> YOLOTraining[Entrenamiento de Segmentación Semántica YOLO]
     end
 ```
 
@@ -54,42 +52,41 @@ graph TD
 
 ## Decisiones Clave y Trade-offs
 
-- **Interfaz en React Native Integrada a Módulos Nativos en Kotlin**:
-  - *Decisión*: Se estructuró la aplicación en React Native para iterar rápidamente sobre la interfaz gráfica, mientras que el pipeline de video y el muestreo de sensores IMU a 100 ms se implementaron en módulos nativos en Kotlin ejecutándose en hilos dedicados.
-  - *Trade-off*: Mayor complejidad en el puente nativo (bridge/JSI), garantizando cero desfasaje temporal y evitando retrasos del bucle de eventos de JavaScript.
-- **Descarte Inmediato en el Edge frente a Redacción en la Nube**:
-  - *Decisión*: Si el detector facial TFLite o el detector de documentos ML Kit disparan una coincidencia, el segmento completo se purga de la memoria del teléfono y la grabación se pausa.
-  - *Trade-off*: Se descartan cuadros útiles circundantes dentro de ese bloque, pero se asegura cumplimiento regulatorio absoluto sin que información sensible salga del dispositivo.
-- **Supabase para Validación de Datos y Metadatos**:
-  - *Decisión*: Se utilizó Supabase (PostgreSQL, Storage y Auth) con políticas de Row-Level Security (RLS) para centralizar la ingesta y la revisión del equipo curador.
-  - *Trade-off*: Mayor velocidad de desarrollo al contar con autenticación y gestión de archivos integradas, permitiendo enfocar los recursos en la validación del dataset.
-- **Roboflow + YOLO para Anotación y Entrenamiento**:
-  - *Decisión*: Se conectó Roboflow para el etiquetado asistido y control de versiones del dataset, exportando particiones directas para el entrenamiento de modelos de segmentación YOLO.
-  - *Trade-off*: Dependencia de herramientas externas de etiquetado, optimizando drásticamente los tiempos de iteración entre la recolección y la puesta en producción de nuevos modelos.
+- **App React Native con Módulos Nativos en Kotlin**:
+  - *Decisión*: Se desarrolló la interfaz de la aplicación en React Native combinada con módulos nativos en Kotlin para la captura de video y el muestreo de sensores IMU a 100 ms.
+  - *Trade-off*: Suma mantenimiento en las fronteras del puente de React Native, permitiendo control nativo de hilos para sostener la telemetría periódica a 100 ms.
+- **Descarte de Privacidad On-Device (TFLite y ML Kit)**:
+  - *Decisión*: Se incorporó detección facial con TFLite y detección de documentos con ML Kit en el dispositivo. Al detectarse un rostro o documento, el segmento actual se descarta y la grabación se pausa.
+  - *Trade-off*: Puede descartar segmentos que contengan partes útiles no sensibles, impidiendo que material con rostros o documentos avance hacia la etapa de subida.
+- **Panel Administrativo en React / Vite / Supabase**:
+  - *Decisión*: Se construyó una aplicación web de validación de datos usando React y Vite, respaldada por Supabase para almacenamiento y base de datos.
+  - *Trade-off*: Aprovechó funcionalidades integradas del backend para acelerar las herramientas de administración, concentrando el desarrollo en los flujos de revisión de datasets.
+- **Roboflow para Anotación y Segmentación Semántica con YOLO**:
+  - *Decisión*: Se utilizó Roboflow para la anotación y versionado de datos, entrenando modelos YOLO orientados a tareas de segmentación semántica.
+  - *Trade-off*: Genera dependencia de herramientas externas de anotación, facilitando un pipeline claro desde datasets validados hasta el entrenamiento de segmentación semántica.
 
 ---
 
 ## Enfoque de Seguridad
 
-- **Aislamiento Volátil de Datos**: Los buffers de video residen en memoria volátil y solo se escriben en almacenamiento persistente una vez que los clasificadores de privacidad confirman la ausencia de personas y documentos.
-- **Row-Level Security (RLS) Estricto**: Las tablas y buckets en Supabase imponen políticas RLS intransigentes, garantizando que los usuarios solo puedan escribir en sus rutas de subida asignadas sin visibilidad sobre otros flujos.
-- **Cero Retención de PII en Crudo**: Ni las características faciales ni los textos detectados por OCR se almacenan o transmiten; los modelos on-device operan puramente como compuertas lógicas booleanas.
-- **URLs de Subida Firmadas**: El transporte de datos se realiza mediante credenciales de subida prefirmadas de vida corta emitidas tras verificar la sesión del recolector.
+- **Compuerta Inmediata en el Dispositivo**: Los segmentos que contienen rostros o documentos detectados se descartan en el propio dispositivo, pausando la captura antes de cualquier transmisión de red.
+- **Controles de Acceso en Supabase**: Las tablas y buckets de almacenamiento se administran con políticas de control de acceso y roles autenticados.
+- **Minimización de Datos de Privacidad**: Los modelos de detección en el móvil operan como disparadores lógicos binarios sin almacenar identidades biométricas ni textos extraídos.
 
 ---
 
 ## Stack Tecnológico
 
-- **Cliente Móvil**: React Native, Kotlin (Módulos Nativos Android)
-- **ML en el Dispositivo**: TensorFlow Lite (Detección Facial), Google ML Kit (Detección de Documentos)
-- **Panel Administrativo**: React, Vite, TypeScript, Tailwind CSS
-- **Backend y Almacenamiento**: Supabase (PostgreSQL, Row-Level Security, Object Storage)
-- **Anotación y Entrenamiento**: Roboflow, Ultralytics YOLO (Segmentación de Instancias)
+- **Aplicación Móvil**: React Native, módulos nativos en Kotlin (~55k LOC en la plataforma)
+- **Modelos de Visión On-Device**: TensorFlow Lite (Detección Facial), Google ML Kit (Detección de Documentos)
+- **Panel Administrativo**: React, Vite
+- **Backend y Almacenamiento**: Supabase (Base de Datos, Object Storage)
+- **Anotación y Modelos**: Roboflow, YOLO (Segmentación Semántica)
 
 ---
 
 ## Qué Haría a Continuación
 
-1. **Ring Buffer Nativo en C++ con NDK**: Migrar la sincronización de fotogramas a C++ mediante el NDK de Android para posibilitar transferencias de memoria zero-copy entre la cámara y la inferencia de modelos.
-2. **Calibración Activa con Filtro de Kalman**: Incorporar un Filtro de Kalman Extendido (EKF) on-device para fusionar lecturas inerciales con vectores de flujo óptico en tiempo real.
-3. **Inpainting Focalizado en el Edge**: Entrenar un modelo ligero de inpainting on-device que permita ofuscar rostros lejanos en segundo plano sin requerir descartar el segmento por completo.
+1. **Implementación Nativa en C++ con NDK**: Idea a futuro: evaluar la implementación del buffer de sincronización cámara-IMU directamente en C++ a través del NDK de Android.
+2. **Rutinas de Calibración de Sensores**: Idea a futuro: investigar rutinas on-device para contrastar la deriva de sensores IMU frente al desplazamiento óptico.
+3. **Inpainting Selectivo**: Idea a futuro: explorar técnicas de inpainting ligero en el edge para desenfocar rostros de fondo sin requerir el descarte completo de los segmentos.

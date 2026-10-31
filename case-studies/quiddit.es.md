@@ -2,19 +2,19 @@
 
 ## Problema
 
-Las aplicaciones modernas de IA interactiva demandan retención continua de contexto y razonamiento de baja latencia a lo largo de ciclos de conversación extensos. Depender de un único proveedor de IA introduce riesgos graves: caídas del servicio, límites de tasa (rate limits), picos de latencia y bloqueo de proveedor (vendor lock-in). Asimismo, enviar imágenes sin procesar y prompts sin restricciones a APIs externas genera exposiciones críticas de privacidad y vulnerabilidades ante ataques de prompt injection.
+Las aplicaciones de IA interactiva requieren retención de contexto y razonamiento resiliente a lo largo del ciclo conversacional. Depender de un único proveedor de IA introduce riesgos de interrupción del servicio, límites de peticiones (rate limits) y dependencia de un solo proveedor. Además, reenviar imágenes de usuarios sin filtrar y prompts sin restricciones a APIs externas genera riesgos de privacidad y posibles vulnerabilidades de inyección de prompts.
 
-Quiddit fue concebido como un orquestador de IA de nivel de producción (~60.000 líneas de código) que provee enrutamiento resiliente entre múltiples modelos, memoria semántica duradera y protección proactiva de privacidad en el perímetro.
+Quiddit es un orquestador de IA (~60k LOC) diseñado para gestionar el enrutamiento entre múltiples modelos, mantener memoria semántica a largo plazo y aplicar protecciones de privacidad locales.
 
 ---
 
 ## Restricciones
 
-1. **Resiliencia ante Proveedores y Disponibilidad**: El sistema debe tolerar la degradación o caída de APIs externas sin tiempo de inactividad, derivando dinámicamente el tráfico entre proveedores cloud y modelos auto-alojados.
-2. **Persistencia de Contexto sin Saturación de Tokens**: Mantener historiales completos de conversación dentro de la ventana de contexto resulta inviable en costos y degrada la calidad del razonamiento. La recuperación de memoria debe ser veloz, relevante y acotada.
-3. **Privacidad de Datos y Sanitización de Personas**: Las imágenes subidas por los usuarios jamás deben exponer sujetos humanos identificables a proveedores externos de LLM ni a redes públicas.
-4. **Resistencia a Entradas Adversarias**: El texto libre ingresado por el usuario no debe poder secuestrar las instrucciones del sistema ni filtrar memorias conversacionales confidenciales.
-5. **Determinismo para Consumidores Downstream**: Los sistemas de backend requieren respuestas en formato JSON estrictamente tipadas a partir de modelos cuyo comportamiento es probabilístico.
+1. **Resiliencia ante Proveedores**: El sistema busca mitigar interrupciones por degradación de proveedores externos mediante failover entre proveedores cloud y modelos locales.
+2. **Persistencia de Contexto**: El historial de diálogo debe indexarse y recuperarse semánticamente en lugar de saturar la ventana de contexto del prompt.
+3. **Privacidad de Datos**: Las imágenes que contengan personas deben filtrarse localmente antes de que los fotogramas salgan de la frontera de red.
+4. **Defensa de Entradas**: Los prompts de texto no confiables deben aislarse para resistir técnicas de prompt injection y proteger las directivas del sistema.
+5. **Salidas Estructuradas**: Los servicios downstream del backend demandan respuestas en formato JSON estrictamente tipadas.
 
 ---
 
@@ -24,28 +24,28 @@ El siguiente diagrama detalla la arquitectura de componentes y el flujo de datos
 
 ```mermaid
 graph TD
-    Client[Cliente / Aplicación] -->|HTTP / WebSocket| Ingress[Proxy Inverso Nginx]
-    Ingress --> Orchestrator[Motor de Orquestación Node.js]
+    Client[Cliente / Aplicación] --> Ingress[Proxy Inverso Nginx]
+    Ingress --> Orchestrator[Orquestador Node.js]
 
-    subgraph Privacy Guard [Límite de Privacidad y Preprocesamiento]
-        Orchestrator -->|Imágenes en Crudo| DETR[Servicio Local de Visión DETR]
-        DETR -->|Fotogramas Sanitizados / BBoxes Ofuscadas| Orchestrator
-        Orchestrator -->|Prompt no Confiable| InjectionDefense[Capa de Defensa contra Prompt Injection]
+    subgraph Privacy Guard [Preprocesamiento y Frontera de Privacidad]
+        Orchestrator -->|Fotogramas| DETR[Sanitización Local de Imágenes DETR]
+        DETR -->|Fotogramas Sanitizados| Orchestrator
+        Orchestrator -->|Prompt| DefenseLayer[Capa de Defensa contra Prompt Injection]
     end
 
-    subgraph Memory Store [Memoria Semántica a Largo Plazo]
-        Orchestrator <-->|Embeddings Vectoriales y Búsqueda HNSW| PGVector[(PostgreSQL + pgvector)]
+    subgraph Memory Store [Memoria Semántica]
+        Orchestrator <-->|Embeddings y Recuperación| PGVector[(PostgreSQL + pgvector)]
     end
 
-    subgraph LLM Provider Tier [Gateway de Failover Multi-Proveedor]
-        InjectionDefense --> Router{Router con Circuit Breaker}
-        Router -->|Tier 1 Primario| Gemini[Google Gemini API]
-        Router -->|Tier 2 Secundario| Together[Together AI API]
-        Router -->|Tier 3 Fallback| Ollama[Cluster Local Ollama]
+    subgraph LLM Failover [Failover Multi-Proveedor]
+        DefenseLayer --> FailoverRouter{Router de Failover Ordenado}
+        FailoverRouter -->|Primario| Gemini[Google Gemini API]
+        FailoverRouter -->|Failover Secundario| Together[Together AI API]
+        FailoverRouter -->|Failover Local| Ollama[Proveedor Ollama]
     end
 
-    subgraph Output Validation [Capa de Extracción Estructurada]
-        Gemini --> ResponseParser[Sanitizador Recursivo de JSON y Validador]
+    subgraph Output Validation [Salidas Estructuradas]
+        Gemini --> ResponseParser[Sanitizador Recursivo de JSON]
         Together --> ResponseParser
         Ollama --> ResponseParser
     end
@@ -58,42 +58,42 @@ graph TD
 
 ## Decisiones Clave y Trade-offs
 
-- **PostgreSQL + pgvector frente a Bases de Datos Vectoriales Dedicadas**:
-  - *Decisión*: Se utilizó PostgreSQL con `pgvector` para consolidar el estado conversacional relacional, los metadatos operativos y los embeddings semánticos en una única base de datos transaccional (ACID).
-  - *Trade-off*: Se eliminó la sobrecarga operativa de sincronizar datos entre bases vectoriales especializadas (ej. Pinecone/Milvus) y bases relacionales, asumiendo una mayor gestión de índices en situaciones de alta concurrencia.
-- **Failover Dinámico Multi-Proveedor (Gemini → Together AI → Ollama)**:
-  - *Decisión*: Se implementó un esquema con health checks activos y circuit breakers que prioriza Gemini, conmuta a Together AI ante rate limits o picos de latencia, y delega en instancias locales de Ollama en casos extremos.
-  - *Trade-off*: Requirió normalizar prompts entre modelos con distintas capacidades y ventanas de contexto, a cambio de una disponibilidad casi total.
-- **Sanitización Local de Imágenes Basada en DETR**:
-  - *Decisión*: Se integró un worker de visión que corre el modelo DEtection TRansformer (DETR) dentro del perímetro de infraestructura para detectar y ofuscar rostros y siluetas humanas antes de que las imágenes salgan de la red.
-  - *Trade-off*: Añadió una pequeña penalización de latencia en la subida (~150–250 ms), garantizando la no filtración de datos biométricos o personales a APIs de terceros.
-- **Validación Estricta de Esquemas JSON**:
-  - *Decisión*: Se combinaron parámetros nativos de salida estructurada con sanitizadores recursivos en el backend para forzar la consistencia de los tipos.
-  - *Trade-off*: Mayor necesidad de reintentos o correcciones sobre modelos de menor escala, protegiendo los contratos de datos con los servicios dependientes.
+- **PostgreSQL + pgvector para Memoria a Largo Plazo**:
+  - *Decisión*: Se utilizó PostgreSQL con la extensión `pgvector` para alojar datos conversacionales, metadatos relacionales y embeddings vectoriales en una única base de datos.
+  - *Trade-off*: Evita operar un cluster de base de datos vectorial separado, demandando una adecuada gestión de índices dentro de PostgreSQL.
+- **Failover Ordenado entre Proveedores LLM (Gemini → Together AI → Ollama)**:
+  - *Decisión*: Se configuró el orquestador en Node.js para intentar peticiones inicialmente con Gemini, conmutar a Together AI ante indisponibilidad o límites de tasa, y recurrir a instancias locales de Ollama si los servicios cloud fallan.
+  - *Trade-off*: Demanda mantener compatibilidad de prompts entre diferentes familias de modelos, aportando resiliencia frente a caídas de un único proveedor.
+- **Sanitización Local de Imágenes con DETR**:
+  - *Decisión*: Se integró el modelo DETR (DEtection TRansformer) a nivel local para detectar y remover personas de las imágenes antes de su egreso a la red externa.
+  - *Trade-off*: Suma procesamiento computacional local antes de remitir peticiones, garantizando que los fotogramas con personas no abandonen la red local.
+- **Salidas con Esquema JSON Estricto**:
+  - *Decisión*: Se combinaron parámetros de esquemas estructurados con sanitización recursiva de JSON en Node.js para asegurar el formato esperado.
+  - *Trade-off*: Puede requerir reintentos de consulta si un modelo pequeño produce JSON malformado, protegiendo los contratos de los servicios dependientes.
 
 ---
 
 ## Enfoque de Seguridad
 
-- **Aislamiento Mediante Delimitadores XML**: Las entradas no confiables del usuario y los fragmentos históricos recuperados se encapsulan en etiquetas XML validadas criptográficamente, previniendo la inyección de directivas que alteren las instrucciones del sistema.
-- **Sanitización Recursiva de JSON**: Las respuestas del modelo se procesan eliminando caracteres de control, verificando riesgos de polución de prototipos y validando esquemas contra contratos estrictos antes de impactar en base de datos.
-- **Privacidad en el Perímetro Local**: Las imágenes que contienen personas son sanitizadas en la red interna mediante DETR; únicamente versiones ofuscadas son accesibles para procesamientos posteriores.
-- **Credenciales Efímeras y Red Aislada**: Los microservicios operan en una red Docker privada detrás de Nginx; ninguna clave de API se expone al cliente ni reside fuera de las configuraciones de entorno seguras.
+- **Aislamiento con Delimitadores XML**: Las entradas de usuario y los contextos recuperados se aíslan dentro de etiquetas XML para separar el contenido no confiable de las instrucciones del sistema.
+- **Sanitización Recursiva de JSON**: Las respuestas del modelo se analizan y limpian de forma recursiva para validar tipos y neutralizar estructuras anómalas antes de su uso.
+- **Filtrado Local con DETR**: Los fotogramas se inspeccionan localmente para ofuscar personas identificables antes de que la información salga de la red.
+- **Aislamiento de Perímetro**: La infraestructura se despliega en contenedores Docker comunicados detrás de un proxy inverso Nginx.
 
 ---
 
 ## Stack Tecnológico
 
-- **Backend Runtime**: Node.js, TypeScript
-- **Base de Datos y Memoria Semántica**: PostgreSQL, `pgvector`
-- **Visión y Privacidad**: PyTorch, DETR (DEtection TRansformer)
-- **Proveedores de Modelos**: Google Gemini API, Together AI API, Ollama (Auto-alojado)
-- **Infraestructura y Despliegue**: Docker, Docker Compose, Nginx
+- **Orquestador Backend**: Node.js, TypeScript (~60k LOC)
+- **Base de Datos y Almacén Semántico**: PostgreSQL, `pgvector`
+- **Visión y Filtrado**: DETR (DEtection TRansformer)
+- **Proveedores de Modelos**: Google Gemini, Together AI, Ollama
+- **Despliegue**: Docker, Nginx
 
 ---
 
 ## Qué Haría a Continuación
 
-1. **Validación de Esquemas en Streaming**: Desarrollar parsers incrementales de JSON para validar y emitir fragmentos de datos a medida que se generan tokens, bajando la latencia percibida por el usuario.
-2. **Búsqueda Híbrida Semántica + Léxica (BM25)**: Integrar búsqueda full-text de PostgreSQL con distancia coseno vectorial aplicando Reciprocal Rank Fusion (RRF) para mejorar la precisión en términos técnicos específicos.
-3. **Pipeline de Red-Teaming Automatizado en CI**: Diseñar pruebas automáticas de evaluación adversaria para auditar de forma continua la efectividad de las defensas contra nuevas técnicas de jailbreak.
+1. **Validación Incremental de Esquemas en Streaming**: Exploración futura: incorporar parsers de JSON en streaming para validar campos mientras se reciben tokens en tiempo real.
+2. **Búsqueda Híbrida Semántica + Léxica (BM25)**: Exploración futura: evaluar la combinación de búsqueda full-text de PostgreSQL con similitud vectorial mediante Reciprocal Rank Fusion.
+3. **Suite Automatizada de Red-Teaming**: Exploración futura: crear un entorno de pruebas para verificar las defensas frente a técnicas emergentes de inyección de prompts.

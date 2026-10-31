@@ -12,9 +12,9 @@ Bienvenido a mi portafolio público de arquitectura e ingeniería. Este reposito
 
 | Sistema | Dominio y Alcance | Aspectos Destacados | Caso de Estudio |
 | :--- | :--- | :--- | :--- |
-| **Quiddit** | Orquestación de IA Multi-Proveedor y Memoria a Largo Plazo | PostgreSQL + pgvector, failover dinámico (Gemini, Together AI, Ollama), defensa contra prompt injection, sanitización local de imágenes con DETR, Docker + Nginx (~60k LOC) | [Leer Caso de Estudio](case-studies/quiddit.es.md) |
-| **Qvision** | Captura Edge de Video y Sensores en Tiempo Real | React Native + módulos nativos en Kotlin (IMU cada 100 ms), privacidad on-device (detección facial con TFLite + detección de documentos con ML Kit), admin en Supabase, segmentación YOLO (~55k LOC) | [Leer Caso de Estudio](case-studies/qvision.es.md) |
-| **umi** | Visión en el Edge Offline-First y Procesamiento de Documentos | MVP en Flutter, lectura on-device de QR y OCR con Google ML Kit, Supabase con Row-Level Security (RLS) | [Leer Caso de Estudio](case-studies/umi.es.md) |
+| **Quiddit** | Orquestación de IA Multi-Proveedor y Memoria a Largo Plazo | PostgreSQL + pgvector, failover multi-proveedor (Gemini, Together AI, Ollama), salidas con esquema JSON estricto, defensa contra prompt injection (aislamiento con delimitadores XML + sanitización recursiva de JSON), sanitización local de imágenes con DETR, Docker + Nginx (~60k LOC) | [Leer Caso de Estudio](case-studies/quiddit.es.md) |
+| **Qvision** | Captura Edge de Video y Sensores en Tiempo Real | App React Native con módulos nativos en Kotlin capturando video + IMU (100 ms), privacidad on-device (detección facial con TFLite, detección de documentos con ML Kit → descartar segmento y pausar), admin en React/Vite/Supabase para validación de datasets, Roboflow para anotación y entrenamiento de segmentación semántica YOLO (~55k LOC) | [Leer Caso de Estudio](case-studies/qvision.es.md) |
+| **umi** | Visión en el Edge Offline-First y Procesamiento de Documentos | MVP en Flutter, lectura on-device de QR y OCR con Google ML Kit, Supabase con Row-Level Security | [Leer Caso de Estudio](case-studies/umi.es.md) |
 
 ### Metodologías de Desarrollo
 
@@ -24,8 +24,8 @@ Bienvenido a mi portafolio público de arquitectura e ingeniería. Este reposito
 
 ## Competencias Técnicas Principales
 
-- **Sistemas de IA Aplicada y ML**: Failover multi-proveedor de LLMs, validación estricta de esquemas JSON, búsqueda semántica con pgvector, modelos de visión en el edge (DETR, YOLO, TFLite, ML Kit).
-- **Ingeniería de Seguridad y Privacidad**: Aislamiento multicapa contra prompt injection, validación recursiva de esquemas, redacción local sin fugas (sanitización de personas y documentos antes de salir de la red), Row-Level Security (RLS).
+- **Sistemas de IA Aplicada y ML**: Failover multi-proveedor de LLMs, validación estricta de esquemas JSON, búsqueda semántica con pgvector, modelos de visión en el edge (DETR, segmentación semántica YOLO, TFLite, ML Kit).
+- **Ingeniería de Seguridad y Privacidad**: Aislamiento multicapa contra prompt injection, validación recursiva de esquemas, redacción local y disparadores de privacidad (sanitización de personas y detección de documentos/rostros antes de salir del dispositivo), Row-Level Security (RLS).
 - **Arquitectura Full-Stack y Mobile**: Servicios en Node.js/TypeScript, Flutter, React Native con módulos nativos en Kotlin, interfaces en React/Vite, despliegues contenerizados en Docker con proxies inversos.
 - **Metodologías Modernas de Ingeniería**: Flujos agénticos supervisados por humanos, tests como compuerta de merge, integración continua automatizada y separación clara de responsabilidades.
 
@@ -34,9 +34,9 @@ Bienvenido a mi portafolio público de arquitectura e ingeniería. Este reposito
 ## Decisiones de Diseño
 
 1. **Documentación Clean-Room**: Todos los casos de estudio describen arquitecturas, fronteras de interfaz y compromisos operativos a nivel de componentes. No se incluye lógica propietaria, esquemas internos, tokens ni datos de usuarios.
-2. **Privacidad Primero en el Edge**: Tanto en visión computacional como en flujos generativos, los datos sensibles y el PII se procesan localmente en el dispositivo de captura antes de cruzar la frontera de red.
-3. **Resiliencia Mediante Redundancia Multi-Proveedor**: En lugar de atar flujos críticos a un único proveedor de modelos, el orquestador implementa comprobaciones de salud, circuit breakers y esquemas de contingencia entre proveedores cloud y locales.
-4. **Validación Estricta de Esquemas**: Las respuestas desestructuradas de los modelos se tratan como entradas no confiables, pasando por sanitización recursiva y validadores de esquemas JSON antes de modificar el estado del sistema.
+2. **Privacidad Primero en el Edge**: Tanto en visión computacional como en flujos generativos, los elementos sensibles se procesan localmente en el dispositivo de captura o en la frontera de red local.
+3. **Resiliencia Mediante Redundancia Multi-Proveedor**: En lugar de atar flujos a un único proveedor de modelos, el orquestador implementa esquemas de contingencia ordenada entre proveedores cloud y locales.
+4. **Validación Estricta de Esquemas**: Las respuestas de los modelos se tratan como entradas no confiables, pasando por sanitización recursiva y validadores de esquemas JSON antes de su utilización.
 
 ---
 
@@ -56,7 +56,6 @@ npm run lint
 
 - Revisá los diagramas de arquitectura en `/case-studies/` (renderizados de forma nativa en GitHub mediante Mermaid).
 - Revisá el flujo de ingeniería agéntica en `/workflow/agentic-development.es.md`.
-- Inspeccioná los patrones de configuración de entorno en `.env.example`.
 
 ---
 
@@ -64,7 +63,6 @@ npm run lint
 
 - **Alcance Documental**: Este repositorio funciona como un portafolio de arquitectura técnica y no contiene código fuente propietario, pesos de modelos internos ni credenciales operativas.
 - **Nivel de Abstracción**: Los diagramas representan relaciones entre subsistemas y flujos de datos a nivel de cajas, sin exponer detalles de clases internas de implementación.
-- **Interfaces de Demostración**: Todo fragmento de código o variable de entorno presentada corresponde a interfaces genéricas diseñadas exclusivamente con fines ilustrativos.
 
 ---
 
