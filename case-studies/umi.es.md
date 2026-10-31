@@ -1,4 +1,4 @@
-# umi: Visión en el Edge Offline-First y Procesamiento de Documentos
+# umi: Visión en el dispositivo y procesamiento de documentos
 
 ## Problema
 

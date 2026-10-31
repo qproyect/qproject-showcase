@@ -16,7 +16,7 @@ Welcome to my public architecture and engineering portfolio. This repository doc
 | :--- | :--- | :--- | :--- |
 | **Quiddit** | Multi-Provider AI Orchestration & Long-Term Memory | PostgreSQL + pgvector, multi-provider failover (Gemini, Together AI, Ollama), strict JSON-schema outputs, prompt injection defense (XML delimiter isolation + recursive JSON sanitization), local DETR image scrubbing, Docker + Nginx (~60k LOC) | [Read Case Study](case-studies/quiddit.md) |
 | **Qvision** | Real-Time Edge Video & Sensor Capture Platform | React Native app with Kotlin native modules capturing video + IMU (100 ms), on-device privacy (TFLite face detection, ML Kit document detection → discard segment & pause), React/Vite/Supabase admin for dataset validation, Roboflow for annotation and YOLO semantic segmentation training (~55k LOC) | [Read Case Study](case-studies/qvision.md) |
-| **umi** | Offline-First Edge Vision & Document Processing | Flutter MVP, on-device QR + OCR with Google ML Kit, Supabase with Row-Level Security | [Read Case Study](case-studies/umi.md) |
+| **umi** | On-Device Vision & Document Processing | Flutter MVP, on-device QR + OCR with Google ML Kit, Supabase with Row-Level Security | [Read Case Study](case-studies/umi.md) |
 
 ### Engineering Workflows
 

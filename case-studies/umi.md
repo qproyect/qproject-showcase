@@ -1,4 +1,4 @@
-# umi: Offline-First Edge Vision & Document Processing
+# umi: On-Device Vision & Document Processing
 
 ## Problem
 

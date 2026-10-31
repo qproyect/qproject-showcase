@@ -14,7 +14,7 @@ Bienvenido a mi portafolio público de arquitectura e ingeniería. Este reposito
 | :--- | :--- | :--- | :--- |
 | **Quiddit** | Orquestación de IA Multi-Proveedor y Memoria a Largo Plazo | PostgreSQL + pgvector, failover multi-proveedor (Gemini, Together AI, Ollama), salidas con esquema JSON estricto, defensa contra prompt injection (aislamiento con delimitadores XML + sanitización recursiva de JSON), sanitización local de imágenes con DETR, Docker + Nginx (~60k LOC) | [Leer Caso de Estudio](case-studies/quiddit.es.md) |
 | **Qvision** | Captura Edge de Video y Sensores en Tiempo Real | App React Native con módulos nativos en Kotlin capturando video + IMU (100 ms), privacidad on-device (detección facial con TFLite, detección de documentos con ML Kit → descartar segmento y pausar), admin en React/Vite/Supabase para validación de datasets, Roboflow para anotación y entrenamiento de segmentación semántica YOLO (~55k LOC) | [Leer Caso de Estudio](case-studies/qvision.es.md) |
-| **umi** | Visión en el Edge Offline-First y Procesamiento de Documentos | MVP en Flutter, lectura on-device de QR y OCR con Google ML Kit, Supabase con Row-Level Security | [Leer Caso de Estudio](case-studies/umi.es.md) |
+| **umi** | Visión en el dispositivo y procesamiento de documentos | MVP en Flutter, lectura on-device de QR y OCR con Google ML Kit, Supabase con Row-Level Security | [Leer Caso de Estudio](case-studies/umi.es.md) |
 
 ### Metodologías de Desarrollo
 
