@@ -1,0 +1,12 @@
+{
+  "name": "portfolio-case-studies",
+  "version": "1.0.0",
+  "description": "Lucas F. Meneses - Engineering Portfolio and Architecture Case Studies",
+  "private": true,
+  "scripts": {
+    "lint": "markdownlint \"**/*.md\" --ignore node_modules"
+  },
+  "devDependencies": {
+    "markdownlint-cli": "^0.44.0"
+  }
+}
