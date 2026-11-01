@@ -1,79 +1,102 @@
-# umi: Visión en el dispositivo y procesamiento de documentos
+# umi: Delegación de retiros de última milla
 
 ## Problema
 
-Las operaciones móviles en campo suelen llevarse a cabo en zonas con conectividad de red limitada o intermitente. Las aplicaciones convencionales que dependen de endpoints en la nube para decodificar códigos QR y realizar reconocimiento óptico de caracteres (OCR) sufren retrasos y errores cuando la conexión se degrada.
+Las entregas de comercio electrónico derivan frecuentemente los paquetes a puntos de retiro de paquetería en lugar de domicilios particulares. Para los usuarios que no pueden retirar sus pedidos personalmente, coordinar el retiro a través de un tercero exige delegar la autorización correspondiente. Los servicios habituales de mensajería o viajes urbanos funcionan como redes genéricas de transporte de punto a punto y carecen de los controles de identidad y los mecanismos de autorización necesarios para retirar encomiendas custodiadas en nombre del destinatario.
 
-umi fue creado como un MVP móvil multiplataforma en Flutter diseñado para realizar extracción de documentos y lectura de códigos de barras directamente en el dispositivo, sin depender de llamadas remotas a APIs.
+umi fue desarrollado como un MVP en Flutter (con enfoque inicial en Android para pruebas cerradas) diseñado como un puente seguro de autorización con cadena de custodia para la delegación de retiros de última milla, permitiendo delegar el retiro en puntos de entrega de e-commerce a cadetes verificados.
 
 ---
 
 ## Restricciones
 
-1. **Visión On-Device**: La decodificación de códigos de barras y QR junto con el reconocimiento de texto OCR deben ejecutarse directamente en el dispositivo móvil.
-2. **Cliente Multiplataforma**: La aplicación móvil debe funcionar en iOS y Android a partir de una única base de código.
-3. **Seguridad Multitenant**: Los datos sincronizados con el backend en la nube deben respetar las fronteras entre organizaciones y usuarios.
+1. **Foco en Puente de Autorización**: La aplicación se posiciona estrictamente como un puente seguro de autorización con cadena de custodia, y no como un servicio de transporte genérico de punto A a punto B.
+2. **Extracción de Comprobantes On-Device**: La decodificación del código QR y la extracción de texto a partir de imágenes cargadas por el usuario deben ejecutarse directamente en el dispositivo, sin llamadas a servicios externos de visión.
+3. **Validación Rigurosa de Cadetes**: Las cuentas de cadetes deben superar una verificación de identidad y documentación antes de poder visualizar o aceptar solicitudes de retiro.
+4. **Despliegue Focalizado**: MVP móvil desarrollado con prioridad en Android para entornos de pruebas cerradas.
 
 ---
 
 ## Arquitectura
 
-El siguiente diagrama presenta la arquitectura de componentes de la aplicación móvil umi y su backend:
+El siguiente diagrama detalla la interacción entre las solicitudes de usuarios, el procesamiento on-device, el alta de cadetes y los servicios backend de Supabase:
 
 ```mermaid
 graph TD
-    subgraph Mobile Client [MVP Móvil Flutter]
-        Camera[Captura de Cámara] --> VisionEngine[Pipeline de Procesamiento de Visión]
-        VisionEngine --> MLKitQR[Google ML Kit: Detección de QR y Códigos]
-        VisionEngine --> MLKitOCR[Google ML Kit: OCR On-Device]
-
-        MLKitQR --> LocalApp[Estado de la Aplicación Flutter]
-        MLKitOCR --> LocalApp
+    subgraph CustomerClient [Flujo del Usuario - Flutter]
+        VoucherUpload[Carga de Foto / Captura del Comprobante] --> MLKitExtract[Extracción On-Device con Google ML Kit]
+        MLKitExtract -->|QR Decodificado y OCR de Texto| ExtractedData[Dirección del Punto y Código de Respaldo]
+        ExtractedData --> MapPin[Confirmación de Pin vía flutter_map + geolocator]
+        MapPin --> SubmitRequest[Creación de Solicitud: Destino + Tipo de Vehículo]
     end
 
-    LocalApp -->|Sincronización con Conexión| SupabaseAuth[Auth de Supabase]
-    SupabaseAuth --> RLS[Políticas de Row-Level Security]
-
-    subgraph Backend Cloud [Infraestructura Supabase]
-        RLS --> Database[(Base de Datos PostgreSQL)]
-        RLS --> Storage[(Almacenamiento Supabase)]
+    subgraph CourierClient [Flujo del Cadete - Flutter]
+        CourierKYC[Registro: DNI Frente/Dorso, Video Selfie, Documentación Vehicular]
+        CourierRadar[Vista de Radar: Pedidos Cercanos]
+        CounterView[Visualización en Mostrador: Presentación del QR]
     end
+
+    subgraph BackendInfrastructure [Infraestructura Backend - Supabase]
+        Auth[Supabase Auth: OTP por Email]
+        DB[(PostgreSQL con Row-Level Security)]
+        Storage[(Supabase Storage: Comprobantes y Archivos KYC)]
+        Realtime[Servicio Supabase Realtime]
+    end
+
+    CourierKYC -->|Subida de Documentación| Storage
+    CourierKYC -->|Estado de Perfil: En Revisión| DB
+    SubmitRequest -->|Guardado de Imagen de Comprobante| Storage
+    SubmitRequest -->|Inserción del Registro de Solicitud| DB
+
+    DB -->|Compuerta de Aprobación Manual| CourierRadar
+    CourierRadar -->|Aceptación del Viaje| DB
+
+    Realtime -->|Transmisión de Estado y Ubicación del Cadete| CustomerClient
+    Realtime -->|Notificación por Proximidad ~500m al Punto de Retiro| CustomerClient
+    Storage -->|Recuperación del QR Almacenado| CounterView
 ```
 
 ---
 
 ## Decisiones Clave y Trade-offs
 
-- **Flutter para el Desarrollo del MVP Móvil**:
-  - *Decisión*: Se desarrolló la aplicación con Flutter y Dart para dar soporte tanto a iOS como a Android desde una base de código compartida.
-  - *Trade-off*: Aumenta el tamaño inicial del instalable respecto a compilaciones nativas puras, reduciendo significativamente los tiempos de desarrollo para el MVP.
-- **Visión On-Device Mediante Google ML Kit**:
-  - *Decisión*: Se integraron las librerías on-device de Google ML Kit para la lectura de códigos de barra/QR y el reconocimiento de texto OCR.
-  - *Trade-off*: Depende de modelos móviles preconstruidos en lugar de arquitecturas de visión entrenadas a medida, evitando latencias de red durante el escaneo.
-- **Supabase con Row-Level Security (RLS)**:
-  - *Decisión*: Se utilizó Supabase como backend aplicando políticas de Row-Level Security en las tablas de la base de datos.
-  - *Trade-off*: Requiere administrar reglas de autorización dentro de las políticas de la base de datos, asegurando fronteras de acceso consistentes en la capa de datos.
+- **Extracción On-Device Mediante Google ML Kit**:
+  - *Decisión*: Se procesó la lectura del código QR y el reconocimiento óptico de caracteres (OCR) de forma local utilizando Google ML Kit para obtener la dirección del punto de retiro y el código de respaldo directamente de las capturas o fotos del comprobante.
+  - *Trade-off*: Incrementa el tamaño del binario móvil, pero procesa comprobantes sensibles en el propio dispositivo sin depender de APIs remotas de visión.
+- **Ciclo de Vida Persistente del Código QR del Comprobante**:
+  - *Decisión*: Se aprovechó que los códigos QR de los comprobantes de puntos de retiro mantienen su validez durante el período de guarda del paquete, almacenando el comprobante en Supabase Storage y exhibiéndolo al cadete al momento del retiro en mostrador.
+  - *Trade-off*: Evita implementar mecanismos complejos de sincronización de tokens efímeros o coreografías de push en el mostrador físico, simplificando notablemente la arquitectura.
+- **Compuerta de Aprobación Manual en el KYC de Cadetes**:
+  - *Decisión*: Se requirió a los postulantes a cadete la presentación de documentación identitaria (fotos de DNI frente y dorso, video selfie breve y papeles del vehículo), manteniendo las cuentas en estado "en revisión" hasta su validación administrativa manual.
+  - *Trade-off*: Suma una instancia operativa previa a la activación de cadetes, garantizando que únicamente perfiles verificados tengan acceso al radar de solicitudes.
+- **Interfaz Oscura de Alto Contraste con Acentos Neón**:
+  - *Decisión*: Se diseñó la interfaz de la aplicación con un tema oscuro de alto contraste complementado con acentos neón.
+  - *Trade-off*: Prioriza una estética propia por sobre los estilos estándar de la plataforma, disminuyendo el encandilamiento y la fatiga visual en la vía pública a la vez que ahorra batería en pantallas OLED durante turnos prolongados.
 
 ---
 
 ## Enfoque de Seguridad
 
-- **Row-Level Security (RLS)**: Las tablas de PostgreSQL implementan políticas de Row-Level Security en Supabase, limitando el acceso de lectura y escritura a usuarios autenticados según reglas de autorización.
-- **Ejecución Local de Visión**: La lectura de QR y el OCR se realizan localmente mediante Google ML Kit; el procesamiento no requiere enviar video o fotos a servicios externos.
-- **Sesiones Autenticadas**: La sincronización con el backend exige sesiones autenticadas gestionadas mediante Supabase Auth.
+- **Row-Level Security (RLS)**: Las tablas de PostgreSQL implementan políticas de Row-Level Security en Supabase, restringiendo la lectura y modificación de solicitudes, ubicaciones y registros a los roles y usuarios autorizados.
+- **Almacenamiento Aislado para KYC y Comprobantes**: La documentación de identidad (DNI, videos selfie, papeles del vehículo) y los comprobantes de retiro se custodian en buckets dedicados de Supabase Storage regulados por políticas de acceso.
+- **Autenticación con OTP por Email**: La gestión de sesiones de usuario se canaliza a través de Supabase Auth mediante códigos de un solo uso (OTP) por correo electrónico.
+- **Frontera de Visión en el Dispositivo**: Las imágenes de los comprobantes se analizan íntegramente en el teléfono del usuario con Google ML Kit para leer códigos de barra y códigos alfanuméricos de respaldo antes de confirmar el envío de la solicitud.
 
 ---
 
 ## Stack Tecnológico
 
-- **Cliente Móvil**: Flutter, Dart
-- **Visión On-Device**: Google ML Kit (Escaneo de Códigos de Barra, OCR On-Device)
-- **Backend**: Supabase (PostgreSQL, Row-Level Security, Autenticación, Almacenamiento)
+- **Cliente Móvil**: Flutter, Dart (Android-first, pruebas cerradas)
+- **Visión On-Device**: Google ML Kit (Escaneo de Códigos de Barra, OCR / Reconocimiento de Texto On-Device)
+- **Mapas y Geolocalización**: `flutter_map`, `geolocator`
+- **Backend y Base de Datos**: Supabase (PostgreSQL, Row-Level Security)
+- **Autenticación y Tiempo Real**: Supabase Auth (OTP por Email), Supabase Realtime
+- **Almacenamiento de Objetos**: Supabase Storage (Comprobantes, Archivos KYC)
 
 ---
 
 ## Qué Haría a Continuación
 
-1. **Tipos de Datos Replicados Libres de Conflicto (CRDTs)**: Idea a futuro: investigar estructuras CRDT para facilitar la sincronización de datos entre pares en situaciones de desconexión en el terreno.
-2. **Corrección de Perspectiva de Documentos**: Idea a futuro: evaluar la incorporación de una etapa on-device para enderezar documentos torcidos antes del procesamiento OCR.
-3. **Cifrado de Carga Útil Extremo a Extremo**: Idea a futuro: explorar el cifrado en el dispositivo de los datos sensibles sincronizados antes de su transmisión al backend.
+1. **Pipeline Automatizado para Verificación Documental**: Idea a futuro: evaluar la integración de validación automatizada de autenticidad documental para asistir la revisión manual de KYC.
+2. **Optimizaciones de Geofencing por Proximidad**: Idea a futuro: explorar geofencing asistido por hardware en segundo plano para optimizar el consumo de batería durante las alertas de cercanía.
+3. **Adaptación Multiplataforma para iOS**: Idea a futuro: evaluar adaptaciones para dispositivos iOS una vez concluida la validación en pruebas cerradas sobre Android.
