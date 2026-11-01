@@ -23,11 +23,12 @@ The following diagram illustrates the mobile edge capture, privacy filtering, an
 ```mermaid
 graph TD
     subgraph Mobile Edge Capture [React Native App with Kotlin Native Modules]
-        Camera[Camera Video Stream] --> KotlinModule[Kotlin Native Capture Module]
-        IMU[IMU Sensors: 100 ms Sampling] --> KotlinModule
+        Camera[Camera Video Stream] --> VisionCamera[vision-camera recorder]
+        IMU[IMU Sensors: 100 ms Sampling] --> KotlinSensor[Kotlin sensor module]
 
-        KotlinModule --> PrivacyGating{On-Device Privacy Detection}
-        PrivacyGating --> TFLite[TFLite Face Detection]
+        VisionCamera --> PrivacyGating{On-Device Privacy Detection}
+        KotlinSensor --> PrivacyGating
+        PrivacyGating --> TFLite[TFLite Face Detection via fast-tflite]
         PrivacyGating --> MLKit[ML Kit Document Detection]
 
         TFLite --> TripwireDecision{Face or Document Detected?}
@@ -53,10 +54,10 @@ graph TD
 ## Key Decisions & Trade-offs
 
 - **React Native App with Kotlin Native Modules**:
-  - *Decision*: Implemented the application shell in React Native while building native Kotlin modules to handle video capture and 100 ms IMU sensor polling.
-  - *Trade-off*: Adds maintenance across React Native bridge boundaries, but allows native threading control for consistent 100 ms sensor telemetry.
-- **On-Device Privacy Discard (TFLite & ML Kit)**:
-  - *Decision*: Deployed on-device TFLite face detection and ML Kit document detection. When a face or document is detected, the current segment is discarded and recording is paused.
+  - *Decision*: Implemented the application shell in React Native using `react-native-vision-camera` for video recording, while building custom Kotlin native modules to handle 100 ms IMU sensor recording, document scanning with ML Kit, file writing, and video playback.
+  - *Trade-off*: Adds maintenance across React Native bridge boundaries, but allows native threading control for consistent 100 ms sensor telemetry while offloading high-performance video recording to dedicated camera tooling.
+- **On-Device Privacy Discard (Fast-TFLite & ML Kit)**:
+  - *Decision*: Deployed on-device face detection running with TFLite via `react-native-fast-tflite` and document scanning via ML Kit native module. When a face or document is detected, the current segment is discarded and recording is paused.
   - *Trade-off*: May discard segments that contain usable non-sensitive footage, but prevents footage with faces or documents from progressing to upload.
 - **React / Vite / Supabase Admin Panel**:
   - *Decision*: Built a dataset validation web application using React and Vite, backed by Supabase for storage and data management.
@@ -77,8 +78,8 @@ graph TD
 
 ## Stack
 
-- **Mobile App**: React Native, Kotlin native modules (~55k LOC across platform)
-- **On-Device Vision Models**: TensorFlow Lite (Face Detection), Google ML Kit (Document Detection)
+- **Mobile App**: React Native, `react-native-vision-camera`, `react-native-fast-tflite`, Kotlin native modules (~55k LOC across platform)
+- **On-Device Vision Models**: TensorFlow Lite via `react-native-fast-tflite` (Face Detection), Google ML Kit (Document Detection)
 - **Admin Dashboard**: React, Vite
 - **Backend & Storage**: Supabase (Database, Object Storage)
 - **Annotation & Model Training**: Roboflow, YOLO (Semantic Segmentation)
