@@ -23,20 +23,20 @@ El siguiente diagrama detalla la interacción entre las solicitudes de usuarios,
 
 ```mermaid
 graph TD
-    subgraph Flujo del Usuario [App de Usuario - Flutter]
+    subgraph CustomerClient [Flujo del Usuario - Flutter]
         VoucherUpload[Carga de Foto / Captura del Comprobante] --> MLKitExtract[Extracción On-Device con Google ML Kit]
         MLKitExtract -->|QR Decodificado y OCR de Texto| ExtractedData[Dirección del Punto y Código de Respaldo]
         ExtractedData --> MapPin[Confirmación de Pin vía flutter_map + geolocator]
         MapPin --> SubmitRequest[Creación de Solicitud: Destino + Tipo de Vehículo]
     end
 
-    subgraph Flujo del Cadete [App de Cadete - Flutter]
+    subgraph CourierClient [Flujo del Cadete - Flutter]
         CourierKYC[Registro: DNI Frente/Dorso, Video Selfie, Documentación Vehicular]
         CourierRadar[Vista de Radar: Pedidos Cercanos]
         CounterView[Visualización en Mostrador: Presentación del QR]
     end
 
-    subgraph Infraestructura Backend [Plataforma Supabase]
+    subgraph BackendInfrastructure [Infraestructura Backend - Supabase]
         Auth[Supabase Auth: OTP por Email]
         DB[(PostgreSQL con Row-Level Security)]
         Storage[(Supabase Storage: Comprobantes y Archivos KYC)]
@@ -51,8 +51,8 @@ graph TD
     DB -->|Compuerta de Aprobación Manual| CourierRadar
     CourierRadar -->|Aceptación del Viaje| DB
 
-    Realtime -->|Transmisión de Estado y Ubicación del Cadete| FlujodelUsuario
-    Realtime -->|Notificación por Proximidad ~500m al Punto de Retiro| FlujodelUsuario
+    Realtime -->|Transmisión de Estado y Ubicación del Cadete| CustomerClient
+    Realtime -->|Notificación por Proximidad ~500m al Punto de Retiro| CustomerClient
     Storage -->|Recuperación del QR Almacenado| CounterView
 ```
 

@@ -23,20 +23,20 @@ The following diagram illustrates the interaction between customer requests, on-
 
 ```mermaid
 graph TD
-    subgraph Customer Client [Customer App Flow - Flutter]
+    subgraph CustomerClient [Customer App Flow - Flutter]
         VoucherUpload[Upload Voucher Photo / Screenshot] --> MLKitExtract[Google ML Kit On-Device Extraction]
         MLKitExtract -->|Decoded QR Code & Text OCR| ExtractedData[Pickup Address & Backup Code]
         ExtractedData --> MapPin[Confirm Pin via flutter_map + geolocator]
         MapPin --> SubmitRequest[Create Request: Destination + Vehicle Type]
     end
 
-    subgraph Courier Client [Courier App Flow - Flutter]
+    subgraph CourierClient [Courier App Flow - Flutter]
         CourierKYC[Registration: Front/Back ID, Selfie Video, Vehicle Docs]
         CourierRadar[Radar View: Nearby Requests]
         CounterView[Counter Voucher Display: QR Code Presentation]
     end
 
-    subgraph Backend Infrastructure [Supabase Platform]
+    subgraph BackendInfrastructure [Supabase Backend Infrastructure]
         Auth[Supabase Auth: Email OTP]
         DB[(PostgreSQL with Row-Level Security)]
         Storage[(Supabase Storage: Vouchers & KYC Files)]
