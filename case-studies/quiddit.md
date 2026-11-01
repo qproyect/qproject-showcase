@@ -37,11 +37,11 @@ graph TD
         Orchestrator <-->|Embeddings & Retrieval| PGVector[(PostgreSQL + pgvector)]
     end
 
-    subgraph LLM Failover [Multi-Provider Failover]
-        DefenseLayer --> FailoverRouter{Ordered Failover Router}
+    subgraph LLM Failover [Tiered LLM Failover]
+        DefenseLayer --> FailoverRouter{Tiered Failover Router}
         FailoverRouter -->|Primary| Gemini[Google Gemini API]
-        FailoverRouter -->|Secondary Failover| Together[Together AI API]
-        FailoverRouter -->|Local Failover| Ollama[Ollama Provider]
+        FailoverRouter -->|Fallback per Tier| Together[Together AI API]
+        FailoverRouter -->|Fallback per Tier| Ollama[Ollama Provider]
     end
 
     subgraph Output Validation [Structured Outputs]
@@ -61,8 +61,8 @@ graph TD
 - **PostgreSQL + pgvector for Long-Term Memory**:
   - *Decision*: Adopted PostgreSQL with `pgvector` to store conversational data, relational metadata, and vector embeddings in a unified database.
   - *Trade-off*: Avoids maintaining a separate vector database cluster alongside relational storage, while requiring appropriate index management in PostgreSQL.
-- **Ordered Multi-Provider LLM Failover (Gemini → Together AI → Ollama)**:
-  - *Decision*: Configured the Node.js orchestrator to attempt requests with Gemini first, fail over to Together AI if unavailable or rate-limited, and route to local Ollama if external options fail.
+- **Tiered LLM Failover**:
+  - *Decision*: Configured ordered failover chains per task tier — Gemini as primary, with Together AI and local Ollama models as fallbacks depending on the tier.
   - *Trade-off*: Requires maintaining prompt compatibility across distinct model families, but provides resilience against single-vendor outages.
 - **Local DETR-Based Image Scrubbing**:
   - *Decision*: Integrated an on-premises DETR (DEtection TRansformer) model to detect and scrub people from image frames locally before any network egress.
@@ -75,7 +75,7 @@ graph TD
 
 ## Security Approach
 
-- **XML Delimiter Isolation**: User prompts and retrieved memory contexts are enclosed in defined XML delimiters to isolate untrusted input from system instructions.
+- **Delimiter Isolation**: Untrusted user input and retrieved memory contexts are wrapped in explicit bracketed delimiter markers, and delimiter markers injected inside the input are stripped before prompting to isolate untrusted input from system instructions.
 - **Recursive JSON Sanitization**: Model responses are recursively parsed and sanitized to validate types and mitigate malformed payloads before processing.
 - **Local DETR Scrubbing**: Image frames are evaluated locally; identifiable people are scrubbed before frames leave the network.
 - **Perimeter Isolation**: Components are deployed within Docker containers behind an Nginx reverse proxy.

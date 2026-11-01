@@ -23,11 +23,12 @@ El siguiente diagrama detalla la captura en el edge móvil, el filtrado de priva
 ```mermaid
 graph TD
     subgraph Mobile Edge Capture [App React Native con Módulos Nativos en Kotlin]
-        Camera[Flujo de Video de Cámara] --> KotlinModule[Módulo Nativo de Captura en Kotlin]
-        IMU[Sensores IMU: Muestreo a 100 ms] --> KotlinModule
+        Camera[Flujo de Video de Cámara] --> VisionCamera[Grabador vision-camera]
+        IMU[Sensores IMU: Muestreo a 100 ms] --> KotlinSensor[Módulo de sensores en Kotlin]
 
-        KotlinModule --> PrivacyGating{Detección de Privacidad On-Device}
-        PrivacyGating --> TFLite[Detección Facial TFLite]
+        VisionCamera --> PrivacyGating{Detección de Privacidad On-Device}
+        KotlinSensor --> PrivacyGating
+        PrivacyGating --> TFLite[Detección Facial TFLite vía fast-tflite]
         PrivacyGating --> MLKit[Detección de Documentos ML Kit]
 
         TFLite --> TripwireDecision{¿Rostro o Documento Detectado?}
@@ -53,10 +54,10 @@ graph TD
 ## Decisiones Clave y Trade-offs
 
 - **App React Native con Módulos Nativos en Kotlin**:
-  - *Decisión*: Se desarrolló la interfaz de la aplicación en React Native combinada con módulos nativos en Kotlin para la captura de video y el muestreo de sensores IMU a 100 ms.
-  - *Trade-off*: Suma mantenimiento en las fronteras del puente de React Native, permitiendo control nativo de hilos para sostener la telemetría periódica a 100 ms.
-- **Descarte de Privacidad On-Device (TFLite y ML Kit)**:
-  - *Decisión*: Se incorporó detección facial con TFLite y detección de documentos con ML Kit en el dispositivo. Al detectarse un rostro o documento, el segmento actual se descarta y la grabación se pausa.
+  - *Decisión*: Se desarrolló la interfaz de la aplicación en React Native utilizando `react-native-vision-camera` para la grabación de video, complementada con módulos nativos en Kotlin para el registro de sensores IMU a 100 ms, escaneo de documentos con ML Kit, escritura de archivos y reproducción de video.
+  - *Trade-off*: Suma mantenimiento en las fronteras del puente de React Native, permitiendo control nativo de hilos para sostener la telemetría periódica a 100 ms mientras se delega la grabación intensiva de video en herramientas de cámara dedicadas.
+- **Descarte de Privacidad On-Device (Fast-TFLite y ML Kit)**:
+  - *Decisión*: Se incorporó detección facial con TFLite mediante `react-native-fast-tflite` y escaneo de documentos con ML Kit en el dispositivo. Al detectarse un rostro o documento, el segmento actual se descarta y la grabación se pausa.
   - *Trade-off*: Puede descartar segmentos que contengan partes útiles no sensibles, impidiendo que material con rostros o documentos avance hacia la etapa de subida.
 - **Panel Administrativo en React / Vite / Supabase**:
   - *Decisión*: Se construyó una aplicación web de validación de datos usando React y Vite, respaldada por Supabase para almacenamiento y base de datos.
@@ -77,8 +78,8 @@ graph TD
 
 ## Stack Tecnológico
 
-- **Aplicación Móvil**: React Native, módulos nativos en Kotlin (~55k LOC en la plataforma)
-- **Modelos de Visión On-Device**: TensorFlow Lite (Detección Facial), Google ML Kit (Detección de Documentos)
+- **Aplicación Móvil**: React Native, `react-native-vision-camera`, `react-native-fast-tflite`, módulos nativos en Kotlin (~55k LOC en la plataforma)
+- **Modelos de Visión On-Device**: TensorFlow Lite vía `react-native-fast-tflite` (Detección Facial), Google ML Kit (Detección de Documentos)
 - **Panel Administrativo**: React, Vite
 - **Backend y Almacenamiento**: Supabase (Base de Datos, Object Storage)
 - **Anotación y Modelos**: Roboflow, YOLO (Segmentación Semántica)

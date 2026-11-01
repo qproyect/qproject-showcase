@@ -37,11 +37,11 @@ graph TD
         Orchestrator <-->|Embeddings y Recuperación| PGVector[(PostgreSQL + pgvector)]
     end
 
-    subgraph LLM Failover [Failover Multi-Proveedor]
-        DefenseLayer --> FailoverRouter{Router de Failover Ordenado}
+    subgraph LLM Failover [Failover de LLM por Niveles]
+        DefenseLayer --> FailoverRouter{Router de Failover por Niveles}
         FailoverRouter -->|Primario| Gemini[Google Gemini API]
-        FailoverRouter -->|Failover Secundario| Together[Together AI API]
-        FailoverRouter -->|Failover Local| Ollama[Proveedor Ollama]
+        FailoverRouter -->|Fallback por Nivel| Together[Together AI API]
+        FailoverRouter -->|Fallback por Nivel| Ollama[Proveedor Ollama]
     end
 
     subgraph Output Validation [Salidas Estructuradas]
@@ -61,8 +61,8 @@ graph TD
 - **PostgreSQL + pgvector para Memoria a Largo Plazo**:
   - *Decisión*: Se utilizó PostgreSQL con la extensión `pgvector` para alojar datos conversacionales, metadatos relacionales y embeddings vectoriales en una única base de datos.
   - *Trade-off*: Evita operar un cluster de base de datos vectorial separado, demandando una adecuada gestión de índices dentro de PostgreSQL.
-- **Failover Ordenado entre Proveedores LLM (Gemini → Together AI → Ollama)**:
-  - *Decisión*: Se configuró el orquestador en Node.js para intentar peticiones inicialmente con Gemini, conmutar a Together AI ante indisponibilidad o límites de tasa, y recurrir a instancias locales de Ollama si los servicios cloud fallan.
+- **Failover de LLM por Niveles**:
+  - *Decisión*: Se configuraron cadenas de failover ordenadas según el nivel de cada tarea — Gemini como primario, con Together AI y modelos locales en Ollama como alternativas de contingencia según el nivel.
   - *Trade-off*: Demanda mantener compatibilidad de prompts entre diferentes familias de modelos, aportando resiliencia frente a caídas de un único proveedor.
 - **Sanitización Local de Imágenes con DETR**:
   - *Decisión*: Se integró el modelo DETR (DEtection TRansformer) a nivel local para detectar y remover personas de las imágenes antes de su egreso a la red externa.
@@ -75,7 +75,7 @@ graph TD
 
 ## Enfoque de Seguridad
 
-- **Aislamiento con Delimitadores XML**: Las entradas de usuario y los contextos recuperados se aíslan dentro de etiquetas XML para separar el contenido no confiable de las instrucciones del sistema.
+- **Aislamiento con Delimitadores**: Las entradas no confiables del usuario y los contextos de memoria recuperados se envuelven en delimitadores explícitos entre corchetes, eliminando los delimitadores inyectados dentro del texto antes de armar el prompt para aislar las entradas no confiables de las instrucciones del sistema.
 - **Sanitización Recursiva de JSON**: Las respuestas del modelo se analizan y limpian de forma recursiva para validar tipos y neutralizar estructuras anómalas antes de su uso.
 - **Filtrado Local con DETR**: Los fotogramas se inspeccionan localmente para ofuscar personas identificables antes de que la información salga de la red.
 - **Aislamiento de Perímetro**: La infraestructura se despliega en contenedores Docker comunicados detrás de un proxy inverso Nginx.
